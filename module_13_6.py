@@ -1,44 +1,57 @@
-from aiogram import Bot, Dispatcher, executor, types
-from aiogram.contrib.fsm_storage.memory import MemoryStorage
-from aiogram.dispatcher.filters.state import State, StatesGroup
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+import logging
+from aiogram import Bot, Dispatcher, types, F
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.filters import Command
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.fsm.state import State, StatesGroup
 
-api = ""
+# Настройка логирования
+logging.basicConfig(level=logging.INFO)
+
+# Инициализация бота и диспетчера
+api = "7205537255:AAGAcdTGl5sOHHkljKEoCm0__tS3FMXVekg"
 bot = Bot(token=api)
-dp = Dispatcher(bot, storage=MemoryStorage())
+dp = Dispatcher(storage=MemoryStorage())
 
 # Обычная клавиатура
-kb = ReplyKeyboardMarkup(resize_keyboard=True)
-button = KeyboardButton(text='Рассчитать')
-button_2 = KeyboardButton(text='Информация')
-kb.add(button).add(button_2)
+kb = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text='Рассчитать')],
+        [KeyboardButton(text='Информация')]
+    ],
+    resize_keyboard=True
+)
 
-# Инлайн-клавиатура
-kb_inl = InlineKeyboardMarkup(row_width=2)
+# Инлайн-клавиатура с использованием InlineKeyboardBuilder
+builder = InlineKeyboardBuilder()
 button_inl = InlineKeyboardButton(text='Рассчитать норму калорий', callback_data='calories')
 button_inl_2 = InlineKeyboardButton(text='Формулы расчёта', callback_data='formulas')
-kb_inl.add(button_inl, button_inl_2)
+builder.add(button_inl, button_inl_2)
+kb_inl = builder.as_markup()
 
-
+# FSM Состояния
 class UserState(StatesGroup):
     age = State()
     growth = State()
     weight = State()
 
-
-@dp.message_handler(commands=['start'])
+# Обработчик команды /start
+@dp.message(Command("start"))
 async def start_message(message: types.Message):
-    await message.answer('Я бот, помогающий твоему здоровью! Нажмите "Рассчитать", чтобы получить рекомендации.\n',
-                         reply_markup=kb)
+    await message.answer(
+        'Я бот, помогающий твоему здоровью! Нажмите "Рассчитать", чтобы получить рекомендации.',
+        reply_markup=kb
+    )
 
-
-@dp.message_handler(text='Рассчитать')
+# Обработчик кнопки "Рассчитать"
+@dp.message(F.text == "Рассчитать")
 async def main_menu(message: types.Message):
     await message.answer("Выберите опцию:", reply_markup=kb_inl)
 
-
-@dp.callback_query_handler(text="formulas")
+# Обработчик инлайн-кнопки "Формулы расчёта"
+@dp.callback_query(F.data == "formulas")
 async def get_formulas(call: types.CallbackQuery):
     await call.message.answer(
         " Упрощенный вариант формулы Миффлина-Сан Жеора: "
@@ -47,46 +60,49 @@ async def get_formulas(call: types.CallbackQuery):
     )
     await call.answer()
 
-
-@dp.callback_query_handler(text="calories")
-async def set_age(call: types.CallbackQuery):
+# Обработчик инлайн-кнопки "Рассчитать норму калорий"
+@dp.callback_query(F.data == "calories")
+async def set_age(call: types.CallbackQuery, state: FSMContext):
     await call.message.answer('Введите свой возраст: ')
-    await UserState.age.set()
+    await state.set_state(UserState.age)
     await call.answer()
 
+# Обработчик ввода возраста
+@dp.message(UserState.age)
+async def set_growth(message: types.Message, state: FSMContext):
+    await state.update_data(age=message.text)
+    await message.answer("Введите свой рост:")
+    await state.set_state(UserState.growth)
 
-@dp.message_handler(text='Информация')
+# Обработчик ввода роста
+@dp.message(UserState.growth)
+async def set_weight(message: types.Message, state: FSMContext):
+    await state.update_data(growth=message.text)
+    await message.answer("Введите свой вес:")
+    await state.set_state(UserState.weight)
+
+
+
+# Обработчик ввода веса и подсчёт калорий
+@dp.message(UserState.weight)
+async def send_calories(message: types.Message, state: FSMContext):
+    user_data = await state.get_data()
+    weight = int(message.text)
+    growth = int(user_data['growth'])
+    age = int(user_data['age'])
+    BMR = int(10 * weight + 6.25 * growth - 5 * age + 5)
+    await message.answer(f'Норма калорий составляет примерно {BMR} ккал/день.')
+    await state.clear()
+
+# Обработчик кнопки "Информация"
+@dp.message(F.text == "Информация")
 async def information(message: types.Message):
     await message.answer('Это тестовый бот для подсчёта калорий')
 
-
-@dp.message_handler(state=UserState.age)
-async def set_growth(message, state):
-    await state.update_data(ag=message.text)
-    await message.answer("Введите свой рост:")
-    await UserState.growth.set()
-
-
-@dp.message_handler(state=UserState.growth)
-async def set_weight(message, state):
-    await state.update_data(grow=message.text)
-    await message.answer("Введите свой вес:")
-    await UserState.weight.set()
-
-
-@dp.message_handler(state=UserState.weight)
-async def send_calories(message, state):
-    await state.update_data(weig=message.text)
-    data = await state.get_data()
-    BMR = int(10 * int(data['weig']) + 6.25 * int(data['grow']) - 5 * int(data['ag']) + 5)
-    await message.answer(f'Норма калорий составляет примерно {BMR} ккал/день.')
-    await state.finish()
-
-
-@dp.message_handler()
+# Универсальный обработчик для всех остальных сообщений
+@dp.message()
 async def all_message(message: types.Message):
     await message.answer("Здравствуйте! Введите команду /start, чтобы продолжить.")
 
-
 if __name__ == '__main__':
-    executor.start_polling(dp, skip_updates=True)
+    dp.run_polling(bot)
