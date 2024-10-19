@@ -11,7 +11,7 @@ from aiogram.fsm.state import State, StatesGroup
 logging.basicConfig(level=logging.INFO)
 
 # Инициализация бота и диспетчера
-api = "7205537255:AAGAcdTGl5sOHHkljKEoCm0__tS3FMXVekg"
+api = ""
 bot = Bot(token=api)
 dp = Dispatcher(storage=MemoryStorage())
 
